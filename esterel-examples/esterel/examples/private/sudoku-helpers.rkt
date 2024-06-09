@@ -3,11 +3,20 @@
 (require racket/vector racket/match racket/sequence
          (for-syntax racket/base))
 
-(provide compute-cols/rows/boxes
+(provide parse-sudoku-board
+         compute-cols/rows/boxes
          compute-houses
          ij->square
          same-house?
          in-house)
+
+(define (parse-sudoku-board sudoku-board f)
+  (for ([l (in-lines (open-input-string sudoku-board))]
+        [y (in-naturals)])
+    (for ([c (in-string l)]
+          [x (in-naturals)])
+      (unless (equal? c #\.)
+        (f x y (- (char->integer c) (char->integer #\0)))))))
 
 (define (compute-houses cells size)
   (define-values (cols rows boxes)

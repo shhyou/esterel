@@ -90,14 +90,6 @@
       (emit must-be n)))
    (pause)))
 
-(define (parse-sudoku-board sudoku-board f)
-  (for ([l (in-lines (open-input-string sudoku-board))]
-        [y (in-naturals)])
-    (for ([c (in-string l)]
-          [x (in-naturals)])
-      (unless (equal? c #\.)
-        (f x y (- (char->integer c) (char->integer #\0)))))))
-
 (define (pencil-marks size cells)
   (define-values (cols rows boxes)
     (compute-cols/rows/boxes cells size))
