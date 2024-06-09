@@ -1,6 +1,7 @@
 #lang racket
 (require esterel/full
-         "private/sudoku-helpers.rkt")
+         "private/sudoku-helpers.rkt"
+         "private/sudoku-gui.rkt")
 (module+ test (require rackunit))
 
 (define 4x4-sudoku-board #<<--

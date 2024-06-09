@@ -1,12 +1,13 @@
-#lang racket
+#lang racket/base
 (module+ test (require rackunit))
-(require esterel/kernel pict racket/gui/base)
+(require racket/vector racket/match racket/sequence
+         (for-syntax racket/base))
 
 (provide compute-cols/rows/boxes
          compute-houses
          ij->square
-         sudoku-gui
-         ht->pict)
+         same-house?
+         in-house)
 
 (define (compute-houses cells size)
   (define-values (cols rows boxes)
@@ -15,30 +16,18 @@
 
 (define (compute-cols/rows/boxes cells size)
   (define cols
-    (for/vector ([i (in-range size)])
-      (for/vector ([j (in-range size)])
-        (hash-ref cells (cons i j)))))
+    (for/vector ([x (in-range size)])
+      (for/vector ([(y _) (in-house size 'col 0 x)])
+        (hash-ref cells (cons x y)))))
   (define rows
-    (for/vector ([j (in-range size)])
-      (for/vector ([i (in-range size)])
-        (hash-ref cells (cons i j)))))
-
+    (for/vector ([y (in-range size)])
+      (for/vector ([(_ x) (in-house size 'row y 0)])
+        (hash-ref cells (cons x y)))))
   (define boxes
     (for/vector ([corner (in-list (get-square-corners size))])
-      (for/vector ([offset (in-list (get-square-index-offsets size))])
-        (hash-ref cells
-                  (cons (+ (car corner) (car offset))
-                        (+ (cdr corner) (cdr offset)))))))
+      (for/vector ([(y x) (in-house size 'box (cdr corner) (car corner))])
+        (hash-ref cells (cons x y)))))
   (values cols rows boxes))
-
-(define (get-square-index-offsets size)
-  (for*/list ([i (in-range (sqrt size))]
-              [j (in-range (sqrt size))])
-    (cons i j)))
-(module+ test
-  (check-equal? (get-square-index-offsets 4)
-                (list (cons 0 0) (cons 0 1)
-                      (cons 1 0) (cons 1 1))))
 
 (define (get-square-corners size)
   (for/list ([i (in-range size)])
@@ -68,6 +57,68 @@
   (check-equal? (ij->square 4 1 3) 2)
   (check-equal? (ij->square 4 3 3) 3))
 
+
+
+(define (same-house? size house-type i j i* j*)
+  (define board-length (sqrt size))
+  (or (and (or (not house-type) (eq? house-type 'row)) (= i i*))
+      (and (or (not house-type) (eq? house-type 'col)) (= j j*))
+      (and (or (not house-type) (eq? house-type 'box))
+           (= (quotient i board-length) (quotient i* board-length))
+           (= (quotient j board-length) (quotient j* board-length)))))
+
+(define (make-in-house-pos->element size house-type i j)
+  (unless (memq house-type '(row col box))
+    (raise-argument-error 'in-house
+                          "(or/c 'row 'col 'box)"
+                          2
+                          i
+                          j
+                          house-type))
+  (define board-length (sqrt size))
+  (match house-type
+    ['row (λ (k) (values i k))]
+    ['col (λ (k) (values k j))]
+    ['box
+     (define i0 (* board-length (quotient i board-length)))
+     (define j0 (* board-length (quotient j board-length)))
+     (λ (k) (values (+ i0 (quotient k board-length)) (+ j0 (modulo k board-length))))]))
+
+(define-sequence-syntax in-house
+  (λ () #'in-house/proc)
+  (λ (stx)
+    (syntax-case stx ()
+      [[(i* j*) (_ size-expr house-type-expr i-expr j-expr)]
+       (syntax/loc stx
+         [(i* j*)
+          (:do-in
+           ;; ([(outer-id ...) outer-expr] ...)
+           ([(size) size-expr]
+            [(pos->element) (make-in-house-pos->element size-expr house-type-expr i-expr j-expr)])
+           ;; outer-defn-or-expr
+           (begin)
+           ;; ([loop-id loop-expr] ...)
+           ([k 0])
+           ;; pos-guard
+           (< k size)
+           ;; ([(inner-id ...) inner-expr] ...)
+           ([(i* j*) (pos->element k)])
+           ;; pre-guard
+           #t
+           ;; post-guard
+           #t
+           ;; loop-arg ...
+           ((add1 k)))])]
+      [_ #f])))
+
+(define (in-house/proc size house-type i j)
+  (make-do-sequence
+   (λ ()
+     (initiate-sequence
+      #:init-pos 0 #:next-pos add1
+      #:pos->element (make-in-house-pos->element size house-type i j)
+      #:continue-with-pos? (λ (k) (< k size))))))
+
 (define (transpose v)
   (define w (vector-length (vector-ref v 0)))
   (for/vector ([i (in-range (vector-length v))])
@@ -82,149 +133,3 @@
                   #(2 b 8 y)
                   #(3 c 7 z)
                   #(4 d 6 w))))
-
-(define (add-lines size p)
-  (define w (pict-width p))
-  (define h (pict-width p))
-  (cc-superimpose
-   (dc
-    (λ (dc dx dy)
-      (define (draw-lines heavy?)
-        (for ([n (in-range 1 size)])
-          (when (equal? heavy? (zero? (modulo n (sqrt size))))
-            (send dc set-pen
-                  (if heavy? "black" "gray")
-                  (if heavy? 3 1)
-                  'solid)
-            (send dc draw-line
-                  (+ dx (* n (/ w size)))
-                  dy
-                  (+ dx (* n (/ w size)))
-                  (+ dy h))
-            (send dc draw-line
-                  dx
-                  (+ dy (* n (/ h size)))
-                  (+ dx w)
-                  (+ dy (* n (/ h size)))))))
-      (define pen (send dc get-pen))
-      (draw-lines #f)
-      (draw-lines #t)
-      (send dc set-pen pen))
-    w h)
-   p))
-
-(define (ht->pict size ht)
-  (for/fold ([p (add-lines size (blank 400 400))])
-            ([i (in-range size)])
-    (for/fold ([p p])
-              ([j (in-range size)])
-      (define-values (must-be cannot-be pre-cannot-be)
-        (match (hash-ref ht (cons i j))
-          [(list must-be cannot-be pre-cannot-be)
-           (values must-be cannot-be pre-cannot-be)]
-          [(cons must-be cannot-be) (values must-be cannot-be #f)]))
-      (define w (/ (pict-width p) size))
-      (define h (/ (pict-height p) size))
-      (define x (* i w))
-      (define y (* j h))
-      (define cannot-be-p
-        (cannot-picts->pict
-         (cannots->cannot-picts size cannot-be)))
-      (define pre-cannot-be-p
-        (and pre-cannot-be
-             (cannot-picts->pict
-              (cannots->cannot-picts size pre-cannot-be))))
-      (define cell-p
-        (vc-append
-         (cond
-           [must-be
-            =>
-            (λ (n) (text (~a n)))]
-           [else (ghost (text "0"))])
-         (scale cannot-be-p 1/2)
-         (if pre-cannot-be-p (scale pre-cannot-be-p 1/2) (blank))))
-      (define margin .05)
-      (define fit-to-cell
-        (scale-to-fit cell-p
-                      (* (- 1 margin margin) w)
-                      (* (- 1 margin margin) h)))
-      (pin-over p
-                (+ x (/ w 2) (- (/ (pict-width fit-to-cell) 2)))
-                (+ y (/ h 2) (- (/ (pict-height fit-to-cell) 2)))
-                fit-to-cell))))
-
-(define (cannots->cannot-picts size cannots)
-  (for/list ([i (in-inclusive-range 1 size)])
-    (cellophane
-     (colorize
-      (text (~a i))
-      (if (set-member? cannots i)
-          "red"
-          "forestgreen"))
-     .4)))
-
-(define (cannot-picts->pict l)
-  (let loop ([l l])
-    (cond
-      [(< (length l) 5) (apply hbl-append l)]
-      [else (vc-append (apply hbl-append (take l 5))
-                       (loop (drop l 5)))])))
-
-(define (sudoku-gui size step)
-  (define ht (step))
-  (define the-pict (ht->pict size ht))
-  (define steps 0)
-
-  (define (draw c dc)
-    (define-values (cw ch) (send c get-client-size))
-    (define sp (scale-to-fit the-pict cw ch))
-    (draw-pict sp
-               dc
-               (- (/ cw 2) (/ (pict-width sp) 2))
-               (- (/ ch 2) (/ (pict-height sp) 2))))
-
-  (define (solved)
-    (for/sum ([(k v) (in-hash ht)])
-      (if (car v) 1 0)))
-  (define (calc-msg)
-    (~a
-     (solved)
-     " cell"
-     (if (= (solved) 1) "" "s")
-     " solved in "
-     steps
-     " step"
-     (if (= steps 1) "" "s")))
-
-  (define (button-callback _1 _2)
-    (set! steps (+ steps 1))
-    (define next-ht (step))
-    (define nothing-changed? (equal? next-ht ht))
-    (set! ht next-ht)
-    (define msg (calc-msg))
-    (when nothing-changed?
-      (set! msg (string-append msg " (but nothing changed)")))
-    (send m set-label msg)
-    (set! ht next-ht)
-    (set! the-pict (ht->pict size ht))
-    (when (= (solved) (* size size))
-      (send b enable #f))
-    (send c refresh))
-
-  (define f (new frame% [label ""] [width 400] [height 400]))
-  (define c (new canvas% [parent f] [paint-callback draw]))
-  (define hp (new horizontal-panel% [parent f] [stretchable-height #f]))
-  (define b (new button% [label "step"] [callback button-callback] [parent hp]))
-  (define m (new message% [parent hp] [label (calc-msg)] [stretchable-width #t]))
-  (send f show #t))
-
-(module+ main
-  (define size 9)
-  (sudoku-gui size
-              (λ ()
-                (for*/hash ([i (in-range size)]
-                            [j (in-range size)])
-                  (values (cons i j)
-                          (cons (and (zero? (random 10))
-                                     (random size))
-                                (set 1 2 3)))))))

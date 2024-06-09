@@ -3,7 +3,7 @@
 (require racket/set
          racket/hash
          esterel/full
-         "sudoku-utils.rkt"
+         "../private/sudoku-helpers.rkt"
          "signal-utils.rkt"
          "controller.rkt")
 
@@ -80,7 +80,7 @@
           (apply set-union
                  (for/list ([house-type (in-list '(row col box))])
                    (define avail-ds-of-other-cells
-                     (for*/list ([(i* j*) (in-house house-type i j)]
+                     (for*/list ([(i* j*) (in-house 9 house-type i j)]
                                  #:when (not (and (= i i*) (= j j*))))
                        (list->set (vector2-ref/fn avails-brd i* j*))))
                    (set-subtract avail-ds (apply set-union avail-ds-of-other-cells)))))))
@@ -102,7 +102,7 @@
            [i (in-range 9)]
            [j (in-range 9)]
            #:when (= 2 (length (vector2-ref/fn avails-brd i j)))
-           [(i* j*) (in-house house-type i j)]
+           [(i* j*) (in-house 9 house-type i j)]
            #:when (not (and (= i i*) (= j j*))))
       (define avail-ds1 (list->set (vector2-ref/fn avails-brd i j)))
       (define avail-ds2 (list->set (vector2-ref/fn avails-brd i* j*)))
@@ -110,7 +110,7 @@
         ;; (printf "naked pair [~a,~a] and [~a,~a]: uses ~a\n" i j i* j* avail-ds1)
         (define cannot-ds
           (set-subtract (list->set (build-list 9 add1)) avail-ds1))
-        (for* ([(i** j**) (in-house house-type i j)]
+        (for* ([(i** j**) (in-house 9 house-type i j)]
                #:when (and (not (and (= i i**) (= j j**)))
                            (not (and (= i* i**) (= j* j**)))))
           (vector-set! (vector-ref curr-naked-pair-brd i**) j**
@@ -133,13 +133,13 @@
     (for* ([house-type (in-list '(row col box))]
            [i (in-range 9)]
            [j (in-range 9)]
-           [(i* j*) (in-house house-type i j)]
+           [(i* j*) (in-house 9 house-type i j)]
            #:when (or (< i i*) (and (= i i*) (< j j*))))
       (define avail-ds
         (set-intersect (list->set (vector2-ref/fn avails-brd i j))
                        (list->set (vector2-ref/fn avails-brd i* j*))))
       (define avail-ds-of-other-cells
-        (for*/list ([(i** j**) (in-house house-type i j)]
+        (for*/list ([(i** j**) (in-house 9 house-type i j)]
                     #:when (and (not (and (= i i**) (= j j**)))
                                 (not (and (= i* i**) (= j* j**)))))
           (list->set (vector2-ref/fn avails-brd i** j**))))
@@ -147,7 +147,7 @@
         (set-subtract avail-ds (apply set-union avail-ds-of-other-cells)))
       (when (>= (set-count remaining-avail-ds) 2)
         ;; (printf "hidden pair [~a,~a] and [~a,~a]: uses ~a\n" i j i* j* remaining-avail-ds)
-        (for ([(i** j**) (in-house house-type i j)]
+        (for ([(i** j**) (in-house 9 house-type i j)]
               #:when (and (not (and (= i i**) (= j j**)))
                           (not (and (= i* i**) (= j* j**)))))
           (vector-set! (vector-ref curr-hidden-pair-board i**) j**
@@ -175,8 +175,8 @@
       (define j (+ j0 k))
       (define avail-ds-cnt
         (apply hash-union #:combine +
-               (for/list ([(i* j*) (in-house other-house-type i j)]
-                          #:when (same-house? 'box i j i* j*))
+               (for/list ([(i* j*) (in-house 9 other-house-type i j)]
+                          #:when (same-house? 9 'box i j i* j*))
                  (set->singleton-count
                   (list->set
                    (vector2-ref/fn avails-brd i j))))))
@@ -187,15 +187,15 @@
       (for ([houses-type (in-list `((box . ,other-house-type) (,other-house-type . box)))])
         (define avail-ds-of-other-cells
           (apply set-union
-                 (for/list ([(i* j*) (in-house (car houses-type) i j)]
-                            #:when (and (not (same-house? (cdr houses-type) i j i* j*))))
+                 (for/list ([(i* j*) (in-house 9 (car houses-type) i j)]
+                            #:when (and (not (same-house? 9 (cdr houses-type) i j i* j*))))
                    (list->set (vector2-ref/fn avails-brd i* j*)))))
         (define locked-ds
           (set-subtract candidate-ds avail-ds-of-other-cells))
         (when (not (set-empty? locked-ds))
           ;; (printf "locked: ~s\n" locked-ds)
-          (for ([(i* j*) (in-house (cdr houses-type) i j)]
-                #:when (and (not (same-house? (car houses-type) i j i* j*))))
+          (for ([(i* j*) (in-house 9 (cdr houses-type) i j)]
+                #:when (and (not (same-house? 9 (car houses-type) i j i* j*))))
             (vector-set! (vector-ref curr-locked-candidates-brd i*) j*
                          (set-union locked-ds
                                     (vector2-ref/fn curr-locked-candidates-brd i* j*)))))))
